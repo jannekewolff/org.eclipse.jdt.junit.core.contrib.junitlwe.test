@@ -1,36 +1,49 @@
 package org.eclipse.jdt.internal.junit.ui;
 
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.jboss.reddeer.swt.wait.AbstractWait.sleep;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.Arrays;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
+import org.eclipse.core.runtime.IPath;
+import org.eclipse.jdt.internal.ui.JavaPlugin;
+import org.eclipse.jdt.internal.ui.JavaPluginImages;
+import org.eclipse.jface.resource.ImageDescriptor;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.ImageData;
+import org.eclipse.swt.widgets.Item;
+import org.hamcrest.BaseMatcher;
+import org.hamcrest.Description;
+import org.hamcrest.Matcher;
 import org.jboss.reddeer.eclipse.jdt.ui.ProjectExplorer;
 import org.jboss.reddeer.eclipse.jdt.ui.junit.JUnitView;
 import org.jboss.reddeer.eclipse.ui.views.contentoutline.OutlineView;
 import org.jboss.reddeer.swt.api.TreeItem;
 import org.jboss.reddeer.swt.condition.JobIsRunning;
+import org.jboss.reddeer.swt.handler.WorkbenchHandler;
 import org.jboss.reddeer.swt.impl.menu.ContextMenu;
 import org.jboss.reddeer.swt.impl.toolbar.ViewToolItem;
 import org.jboss.reddeer.swt.impl.tree.DefaultTree;
 import org.jboss.reddeer.swt.wait.TimePeriod;
 import org.jboss.reddeer.swt.wait.WaitWhile;
 import org.jboss.reddeer.workbench.exception.WorkbenchPartNotFound;
-import org.jboss.reddeer.workbench.impl.editor.DefaultEditor;
 import org.jboss.reddeer.workbench.impl.editor.TextEditor;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.MethodRule;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.Statement;
 
+@SuppressWarnings({ "restriction" })
 public class JUnitLinkWithEditorRedDeerTest {
 
 	@Rule
@@ -62,12 +75,12 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void setupJunitView() {
 		// close all editors
 		try {
-			new DefaultEditor().closeAll(false);
+			WorkbenchHandler.getInstance().closeAllEditors();
 		} catch (WorkbenchPartNotFound e) {
 			// ignore if it fails here, it just means there's no editor open
 		}
 		// run the JUnit tests on the project
-    	final ProjectExplorer projectExplorer = new ProjectExplorer();
+		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		assertTrue(projectExplorer.containsProject("JUnit-LWE"));
 		projectExplorer.getProject("JUnit-LWE").select();
 		new ContextMenu("Run As", "4 JUnit Test").select();
@@ -115,6 +128,57 @@ public class JUnitLinkWithEditorRedDeerTest {
 			}
 		}
 		return null;
+	}
+
+	private Image getImage(final Item item) {
+		final LinkedBlockingQueue<Image> queue = new LinkedBlockingQueue<Image>(1);
+		org.jboss.reddeer.swt.util.Display.asyncExec(new Runnable() {
+			@Override
+			public void run() {
+				queue.add(item.getImage());
+			}
+		});
+		try {
+			return queue.poll(10, TimeUnit.SECONDS);
+		} catch (InterruptedException e) {
+			fail("Failed to retrieve the image");
+			return null;
+		}
+	}
+
+	private Matcher<Image> matches(final String iconName) {
+		return new BaseMatcher<Image>() {
+
+			@Override
+			public boolean matches(Object item) {
+				final Image image = (Image) item;
+				final LinkedBlockingQueue<ImageData> queue = new LinkedBlockingQueue<ImageData>(1);
+				org.jboss.reddeer.swt.util.Display.syncExec(new Runnable() {
+					@Override
+					public void run() {
+						final IPath path = JavaPluginImages.ICONS_PATH.append("elcl16").append(iconName);
+						final ImageDescriptor imageDescriptor = JavaPluginImages.createImageDescriptor(JavaPlugin
+								.getDefault().getBundle(), path, false);
+						final ImageData imageData = imageDescriptor.createImage().getImageData();
+						queue.add(imageData);
+					}
+				});
+				try {
+					final ImageData imageData = queue.poll(10, TimeUnit.SECONDS);
+					return Arrays.equals(image.getImageData().data, imageData.data);
+				} catch (InterruptedException e) {
+					fail("Failed to retrieve the image");
+				}
+
+				return false;
+			}
+
+			@Override
+			public void describeTo(Description description) {
+				description.appendText(iconName);
+
+			}
+		};
 	}
 
 	@Test
@@ -202,10 +266,8 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
-
 	@Test
 	@LinkWithEditor(enabled = true)
-	@Ignore("known to fail for now")
 	public void shouldSelectElementInJUnitViewWhenSelectingAnotherElementInOutlineViewWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
@@ -225,7 +287,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertFalse(initialTestElement.isSelected());
 		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
 		assertTrue(expectedTestSelection.isSelected());
-    }
+	}
 
 	@Test
 	@LinkWithEditor(enabled = false)
@@ -533,5 +595,47 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertThat(activeEditor.getSelectedText(), containsString("assertEquals(a.getStr(), \"get\");"));
 	}
 
-}
+	@Test
+	@LinkWithEditor(enabled = true)
+	public void shouldShowBrokenLinkWhenSwitchingToNonTestClassEditorThenSyncFromOutlineWhenBackToTestClassEditorWithLinkEnabled() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		junitView.open();
+		sleep(TimePeriod.SHORT);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		initialTestElement.doubleClick();
+		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		final TextEditor testEditor = new TextEditor();
+		// when open A.java from Project Explorer
+		ProjectExplorer projectExplorer = new ProjectExplorer();
+		projectExplorer.activate();
+		projectExplorer.getProject("JUnit-LWE").getProjectItem("src", "junit.lwe", "A.java").open();
+		sleep(TimePeriod.SHORT);
+		// then
+		final TextEditor aClassEditor = new TextEditor();
+		assertTrue(aClassEditor.isActive());
+		assertEquals("A.java", aClassEditor.getTitle());
+		junitView.activate();
+		sleep(TimePeriod.SHORT);
+		ViewToolItem viewToolItem = new ViewToolItem("Link with Editor");
+		assertTrue(viewToolItem.isEnabled());
+		assertTrue(viewToolItem.isSelected());
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches("sync_broken.gif")); //$NON-NLS-1$
+		// when switch back to Test Editor
+		testEditor.activate();
+		sleep(TimePeriod.SHORT);
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches("synced.gif")); //$NON-NLS-1$
+		// when select a method in the outline view
+		new OutlineView().open();
+		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
+		firstOutlineElement.select();
+		sleep(TimePeriod.getCustom(2));
+		// then the JUnit view selection should have changed
+		junitView.activate();
+		sleep(TimePeriod.SHORT);
+		assertFalse(initialTestElement.isSelected());
+		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
+		assertTrue(expectedTestSelection.isSelected());
+	}
 
+}
