@@ -14,6 +14,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.jdt.internal.junit.ui.RunJUnitTests.TestType;
 import org.eclipse.jdt.internal.ui.JavaPlugin;
 import org.eclipse.jdt.internal.ui.JavaPluginImages;
 import org.eclipse.jface.resource.ImageDescriptor;
@@ -38,8 +39,6 @@ import org.jboss.reddeer.swt.wait.WaitWhile;
 import org.jboss.reddeer.workbench.exception.WorkbenchPartNotFound;
 import org.jboss.reddeer.workbench.impl.editor.TextEditor;
 import org.jboss.reddeer.workbench.impl.view.AbstractView;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.MethodRule;
@@ -59,6 +58,28 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 		@Override
 		public Statement apply(final Statement base, final FrameworkMethod method, final Object target) {
+			return new Statement() {
+				@Override
+				public void evaluate() throws Throwable {
+					closeAllEditors();
+					runJUnitTests(method);
+					toogleLinkWithEditor(method);
+					base.evaluate();
+					new JUnitView().close();
+				}
+			};
+		}
+
+		private void closeAllEditors() {
+			// close all editors
+			try {
+				WorkbenchHandler.getInstance().closeAllEditors();
+			} catch (WorkbenchPartNotFound e) {
+				// ignore if it fails here, it just means there's no editor open
+			}
+
+		}
+		private void toogleLinkWithEditor(final FrameworkMethod method) {
 			final LinkWithEditor linkWithEditor = method.getAnnotation(LinkWithEditor.class);
 			final JUnitView junitView = new JUnitView();
 			open(junitView);
@@ -70,14 +91,27 @@ public class JUnitLinkWithEditorRedDeerTest {
 			} else {
 				viewToolItem.toggle(false);
 			}
-			return new Statement() {
-				@Override
-				public void evaluate() throws Throwable {
-					base.evaluate();
-				}
-			};
+		}
+
+		private void runJUnitTests(final FrameworkMethod method) {
+			final RunJUnitTests runJUnitTests = method.getAnnotation(RunJUnitTests.class);
+			if (runJUnitTests == null) {
+				fail("Missing @RunWithJunitTests annotation");
+			}
+			switch (runJUnitTests.type()) {
+			case ALL:
+				runAllTests();
+				break;
+			case LIB:
+				runAllNestedTests();
+				break;
+			case SUITE:
+				runTestSuite();
+				break;
+			}
 		}
 	};
+
 
 	private void runAllTests() {
 		// run the JUnit tests on the project
@@ -106,25 +140,20 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertEquals(new JUnitView().getNumberOfErrors(), 0);
 	}
 
-	private void closeAllEditors() {
-		// close all editors
-		try {
-			WorkbenchHandler.getInstance().closeAllEditors();
-		} catch (WorkbenchPartNotFound e) {
-			// ignore if it fails here, it just means there's no editor open
-		}
-
-	}
-
-	@Before
-	public void setupJunitView() {
-		closeAllEditors();
-		runAllTests();
-	}
-
-	@After
-	public void closeJunitView() {
-		new JUnitView().close();
+	private void runTestSuite() {
+		// run the JUnit tests on the project
+		final ProjectExplorer projectExplorer = new ProjectExplorer();
+		assertTrue(projectExplorer.containsProject(TEST_PROJECT));
+		projectExplorer.getProject(TEST_PROJECT).select();
+		final TreeItem testSuiteItem = getTreeItem(TEST_PROJECT, "src", "junit.lwe", "AllTests.java");
+		testSuiteItem.select();
+		final ContextMenu runAsJunitTestContextMenu = new ContextMenu("Run As", "2 JUnit Test");
+		runAsJunitTestContextMenu.select();
+		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		// make sure the view gets updated once the job finished
+		sleep(TimePeriod.SHORT);
+		assertEquals(new JUnitView().getNumberOfFailures(), 2);
+		assertEquals(new JUnitView().getNumberOfErrors(), 0);
 	}
 
 	/**
@@ -196,6 +225,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 		treeItem.select();
 		// sleep(TimePeriod.SHORT);
 	}
+
+	private void selectText(final TextEditor editor, final String text) {
+		editor.selectText(text);
+		sleep(TimePeriod.SHORT);
+	}
+
+	private void selectLine(final TextEditor editor, final int line) {
+		editor.selectLine(line);
+		sleep(TimePeriod.SHORT);
+	}
+
 	private void activate(final AbstractView view) {
 		view.activate();
 		sleep(TimePeriod.SHORT);
@@ -203,6 +243,12 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	private void activate(final TextEditor editor) {
 		editor.activate();
+		sleep(TimePeriod.SHORT);
+	}
+
+	private void doubleClick(final TreeItem item) {
+		item.doubleClick();
+		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
 		sleep(TimePeriod.SHORT);
 	}
 
@@ -243,13 +289,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldOpenEditorWhenDoubleClickOnTestElementInJUnitViewWithLinkEnabled() {
 		// given
 		open(new JUnitView());
 		final TreeItem selectedTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
 		// when
-		selectedTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(selectedTestElement);
 		// then
 		final TextEditor defaultEditor = new TextEditor();
 		assertTrue(defaultEditor.isActive());
@@ -259,13 +305,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldOpenEditorWhenDoubleClickOnTestElementInJUnitViewWithLinkDisabled() {
 		// given
 		open(new JUnitView());
 		final TreeItem selectedTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
 		// when
-		selectedTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(selectedTestElement);
 		// then
 		final TextEditor defaultEditor = new TextEditor();
 		assertTrue(defaultEditor.isActive());
@@ -275,13 +321,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectElementInEditorWhenSelectingAnotherElementInJUnitViewWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		open(junitView);
 		final TreeItem otherTestElement = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		select(otherTestElement);
@@ -298,13 +344,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotSelectElementInEditorWhenSelectingAnotherElementInJUnitViewWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		open(junitView);
 		final TreeItem otherTestElement = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		select(otherTestElement);
@@ -322,13 +368,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectElementInJUnitViewWhenSelectingAnotherElementInOutlineViewWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting another element in the outline view
 		open(new OutlineView());
 		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
@@ -342,13 +388,13 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotSelectElementInJUnitViewWhenSelectingAnotherElementInOutlineViewWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting another element in the outline view
 		open(new OutlineView());
 		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
@@ -360,18 +406,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectTestElementInJUnitViewWhenSelectingAnotherMethodNameInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting another method name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectText("testSetStr1");
-		sleep(TimePeriod.SHORT);
+		selectText(editor, "testSetStr1");
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
@@ -385,18 +430,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotSelectTestElementInJUnitViewWhenSelectingAnotherMethodNameInEditorWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting another method name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectText("testSetStr1");
-		sleep(TimePeriod.SHORT);
+		selectText(editor, "testSetStr1");
 		// then the JUnit view selection should not have changed
 		activate(junitView);
 		assertTrue(initialTestElement.isSelected());
@@ -408,18 +452,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectTestElementInJUnitViewWhenSelectingAnotherMethodBodyElementInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting a line in another method in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectLine(17);
-		sleep(TimePeriod.getCustom(2));
+		selectLine(editor, 17);
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
@@ -433,18 +476,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotSelectTestElementInJUnitViewWhenSelectingAnotherMethodBodyElementInEditorWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting a line in another method in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectLine(17);
-		sleep(TimePeriod.getCustom(2));
+		selectLine(editor, 17);
 		// then the JUnit view selection should not have changed
 		activate(junitView);
 		assertTrue(initialTestElement.isSelected());
@@ -456,23 +498,22 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectTestClassInJUnitViewWhenSelectingTypeNameInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting the type name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectLine(6);
-		sleep(TimePeriod.getCustom(2));
+		selectLine(editor, 6);
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedSelection = getTreeItem("junit.lwe.TP1");
+		final TreeItem expectedSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1");
 		assertTrue(expectedSelection.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
@@ -482,18 +523,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotSelectTestClassInJUnitViewWhenSelectingTypeNameInEditorWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting the type name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		editor.selectLine(6);
-		sleep(TimePeriod.getCustom(2));
+		selectLine(editor, 6);
 		// then the JUnit view selection should not have changed
 		activate(junitView);
 		assertTrue(initialTestElement.isSelected());
@@ -505,23 +545,21 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectTypeElementInJUnitViewWhenSelectingAnImportStatementInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting a line in the import statements in the editor
 		final TextEditor editor = new TextEditor();
-		editor.activate();
-		sleep(TimePeriod.SHORT);
-		editor.selectLine(2);
-		sleep(TimePeriod.getCustom(2));
+		activate(editor);
+		selectLine(editor, 2);
 		// then the JUnit view selection should not have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
-		assertTrue(getTreeItem("junit.lwe.TP1").isSelected());
+		assertTrue(getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1").isSelected());
 		// and in the outline view has the same selection
 		open(new OutlineView());
 		final TreeItem expectedOutlineSelection = getTreeItem("TP1");
@@ -530,19 +568,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotChangeSelectedElementInJUnitViewWhenSelectingAnImportStatementInEditorWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		// when selecting a line in the import statements in the editor
 		final TextEditor editor = new TextEditor();
-		editor.activate();
-		sleep(TimePeriod.SHORT);
-		editor.selectLine(2);
-		sleep(TimePeriod.getCustom(2));
+		activate(editor);
+		selectLine(editor, 2);
 		// then the JUnit view selection should not have changed
 		activate(junitView);
 		assertTrue(initialTestElement.isSelected());
@@ -551,21 +587,20 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldActivateOtherEditorViewAndFocusWhenSelectingAnotherElementInJUnitViewWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		final TextEditor firstEditor = new TextEditor();
 		assertTrue(firstEditor.isActive());
 		assertEquals("TP1.java", firstEditor.getTitle());
 		assertEquals("testGetStr1", firstEditor.getSelectedText());
 		open(junitView);
 		final TreeItem secondTestElement = getTreeItem("junit.lwe.TP2", "testSetStr2");
-		secondTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(secondTestElement);
 		final TextEditor secondEditor = new TextEditor();
 		assertTrue(secondEditor.isActive());
 		assertEquals("TP2.java", secondEditor.getTitle());
@@ -584,21 +619,20 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotActivateOtherEditorViewAndFocusWhenSelectingAnotherElementInJUnitViewWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		final TextEditor firstEditor = new TextEditor();
 		assertTrue(firstEditor.isActive());
 		assertEquals("TP1.java", firstEditor.getTitle());
 		assertEquals("testGetStr1", firstEditor.getSelectedText());
 		open(junitView);
 		final TreeItem secondTestElement = getTreeItem("junit.lwe.TP2", "testSetStr2");
-		secondTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(secondTestElement);
 		final TextEditor secondEditor = new TextEditor();
 		assertTrue(secondEditor.isActive());
 		assertEquals("TP2.java", secondEditor.getTitle());
@@ -618,6 +652,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenLinkAfterTestRunWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
@@ -631,6 +666,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenLinkAfterTestRunWithLinkDisabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
@@ -644,14 +680,14 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenLinkWhenSwitchingToNonTestClassEditorThenSyncFromOutlineWhenBackToTestClassEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
-		initialTestElement.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		doubleClick(initialTestElement);
 		final TextEditor testEditor = new TextEditor();
 		// when open A.java from Project Explorer
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -667,8 +703,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNC_BROKEN_IMAGE));
 		// when switch back to Test Editor
-		testEditor.activate();
-		sleep(TimePeriod.SHORT);
+		activate(testEditor);
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 		// when select a method in the outline view
 		open(new OutlineView());
@@ -683,6 +718,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenSyncWhenTestEndsAndOtherTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -702,6 +738,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestEndsAndOtherTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -721,6 +758,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestEndsAndFirstFailingTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -740,6 +778,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestEndsAndFirstFailingTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -759,6 +798,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenSyncWhenTestEndsAndNonTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -778,6 +818,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestEndsAndTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -797,6 +838,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestEndsAndNonTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -817,6 +859,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenSyncWhenOtherEditorActiveThenSyncAgainWhenTestEditorOpensWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -845,6 +888,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -862,6 +906,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -879,6 +924,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenSyncWhenNonTestClassEditorOpenedWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -896,6 +942,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenNonTestClassEditorOpenedWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
@@ -913,19 +960,20 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedAndSwitchingToProjectExplorerAndBackToJUnitViewWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
 				"TP1.java");
 		open(aClassItem);
-		activate(jUnitView);
+		activate(junitView);
 		activate(projectExplorer);
-		activate(jUnitView);
+		activate(junitView);
 
 		// then the LWE button should be 'in sync' state
 		assertTrue(viewToolItem.isEnabled());
@@ -935,33 +983,34 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedAndSwitchingToProjectExplorerAndBackToJUnitViewWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
 				"TP1.java");
 		open(aClassItem);
-		activate(jUnitView);
+		activate(junitView);
 		activate(projectExplorer);
-		activate(jUnitView);
+		activate(junitView);
 
 		// then the LWE button should be 'in sync' state
 		assertTrue(viewToolItem.isEnabled());
 		assertFalse(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 	}
-	
+
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromProjectExplorerWithLinkEnabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -977,11 +1026,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromProjectExplorerWithLinkDisabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -997,11 +1046,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromProjectExplorerAndTestMethodSelectedInOutlineWithLinkEnabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1022,11 +1071,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromProjectExplorerAndTestMethodSelectedInOutlineWithLinkDisabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1047,11 +1096,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromJUnitViewWithLinkEnabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1067,11 +1116,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromJUnitViewWithLinkDisabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1087,11 +1136,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	@Test
 	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromJUnitViewAndTestElementSelectedWithLinkEnabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1099,7 +1148,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		final ProjectItem testClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("JUnit-LWE-lib.jar",
 				"junit.lwe.submodule", "TP3.class");
 		open(testClassItem);
-		activate(jUnitView);
+		activate(junitView);
 		final TreeItem testElement = getTreeItem("junit.lwe.submodule.AllTests", "junit.lwe.submodule.TP3",
 				"testSetStr3");
 		select(testElement);
@@ -1109,14 +1158,14 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 	}
-		
+
 	@Test
 	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.LIB)
 	public void shouldNotShowBrokenSyncWhenLibTestClassEditorOpenedFromJUnitViewAndTestElementSelectedWithLinkDisabled() {
 		// given
-		runAllNestedTests();
-		final JUnitView jUnitView = new JUnitView();
-		activate(jUnitView);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
 		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
@@ -1124,7 +1173,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		final ProjectItem testClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("JUnit-LWE-lib.jar",
 				"junit.lwe.submodule", "TP3.class");
 		open(testClassItem);
-		activate(jUnitView);
+		activate(junitView);
 		final TreeItem testElement = getTreeItem("junit.lwe.submodule.AllTests", "junit.lwe.submodule.TP3",
 				"testSetStr3");
 		select(testElement);
@@ -1134,5 +1183,53 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertFalse(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 	}
-	
+
+	@Test
+	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.SUITE)
+	public void shouldNotShowBrokenSyncWhenTestClassSelectedInEditorWithLinkEnabled() {
+		// given JUnit view exists and TP1.java opened from JUnit View
+		final JUnitView junitView = new JUnitView();
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		activate(junitView);
+		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		// when selecting another class name in the editor
+		final TextEditor editor = new TextEditor();
+		activate(editor);
+		selectText(editor, "TP1");
+		// then the LWE button should be 'in sync' state
+		activate(junitView);
+		final TreeItem testElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1");
+		assertTrue(viewToolItem.isEnabled());
+		assertTrue(viewToolItem.isSelected());
+		assertTrue(testElement.isSelected());
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
+	}
+
+	@Test
+	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.SUITE)
+	public void shouldNotShowBrokenSyncWhenTestClassSelectedInEditorWithLinkFalse() {
+		// given JUnit view exists and TP1.java opened from JUnit View
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		activate(junitView);
+		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		// when selecting another class name in the editor
+		final TextEditor editor = new TextEditor();
+		activate(editor);
+		selectText(editor, "TP1");
+		// then the LWE button should be 'in sync' state
+		activate(junitView);
+		final TreeItem testElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1");
+		assertTrue(viewToolItem.isEnabled());
+		assertFalse(viewToolItem.isSelected());
+		assertFalse(testElement.isSelected());
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
+	}
+
 }
