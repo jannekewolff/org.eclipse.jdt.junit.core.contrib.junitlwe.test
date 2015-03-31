@@ -1,7 +1,6 @@
 package org.eclipse.jdt.internal.junit.ui;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.jboss.reddeer.swt.wait.AbstractWait.sleep;
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -24,19 +23,22 @@ import org.eclipse.swt.widgets.Item;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
+import org.jboss.reddeer.common.condition.WaitCondition;
+import org.jboss.reddeer.common.wait.TimePeriod;
+import org.jboss.reddeer.common.wait.WaitUntil;
+import org.jboss.reddeer.eclipse.core.resources.ProjectItem;
 import org.jboss.reddeer.eclipse.jdt.ui.ProjectExplorer;
 import org.jboss.reddeer.eclipse.jdt.ui.junit.JUnitView;
-import org.jboss.reddeer.eclipse.jdt.ui.packageexplorer.ProjectItem;
 import org.jboss.reddeer.eclipse.ui.views.contentoutline.OutlineView;
+import org.jboss.reddeer.jface.viewer.handler.TreeViewerHandler;
 import org.jboss.reddeer.swt.api.TreeItem;
 import org.jboss.reddeer.swt.condition.JobIsRunning;
 import org.jboss.reddeer.swt.handler.WorkbenchHandler;
 import org.jboss.reddeer.swt.impl.menu.ContextMenu;
-import org.jboss.reddeer.swt.impl.toolbar.ViewToolItem;
+import org.jboss.reddeer.swt.impl.toolbar.DefaultToolItem;
 import org.jboss.reddeer.swt.impl.tree.DefaultTree;
-import org.jboss.reddeer.swt.wait.TimePeriod;
-import org.jboss.reddeer.swt.wait.WaitWhile;
-import org.jboss.reddeer.workbench.exception.WorkbenchPartNotFound;
+import org.jboss.reddeer.workbench.api.Editor;
+import org.jboss.reddeer.workbench.api.View;
 import org.jboss.reddeer.workbench.impl.editor.TextEditor;
 import org.jboss.reddeer.workbench.impl.view.AbstractView;
 import org.junit.Rule;
@@ -47,6 +49,117 @@ import org.junit.runners.model.Statement;
 
 @SuppressWarnings({ "restriction" })
 public class JUnitLinkWithEditorRedDeerTest {
+
+	private static final class JobIsDoneCondition implements WaitCondition {
+		@Override
+		public boolean test() {
+			return !(new JobIsRunning().test());
+		}
+
+		@Override
+		public String description() {
+			return "a job is running";
+		}
+	}
+
+	private static final class PostSelectionCondition implements WaitCondition {
+
+		private final TimePeriod period;
+
+		public PostSelectionCondition(final TimePeriod period) {
+			this.period = period;
+		}
+
+		@Override
+		public boolean test() {
+			try {
+				Thread.sleep(period.getSeconds() * 1000);
+			} catch (InterruptedException e) {
+			}
+			return true;
+		}
+
+		@Override
+		public String description() {
+			return "a portion of text is selected";
+		}
+	}
+
+	private static final class ViewActivationCondition implements WaitCondition {
+
+		private final View targetView;
+
+		public ViewActivationCondition(final View targetView) {
+			this.targetView = targetView;
+		}
+
+		@Override
+		public boolean test() {
+			return targetView.isActive();
+		}
+
+		@Override
+		public String description() {
+			return targetView.getTitle() + " is active";
+		}
+	}
+
+	private static final class ProjectItemSelectionCondition implements WaitCondition {
+
+		private final ProjectItem targetItem;
+
+		public ProjectItemSelectionCondition(final ProjectItem targetItem) {
+			this.targetItem = targetItem;
+		}
+
+		@Override
+		public boolean test() {
+			return targetItem.isSelected();
+		}
+
+		@Override
+		public String description() {
+			return targetItem.getName() + " is selected";
+		}
+	}
+
+	private static final class TreeItemSelectionCondition implements WaitCondition {
+
+		private final TreeItem targetItem;
+
+		public TreeItemSelectionCondition(final TreeItem targetItem) {
+			this.targetItem = targetItem;
+		}
+
+		@Override
+		public boolean test() {
+			return targetItem.isSelected();
+		}
+
+		@Override
+		public String description() {
+			return targetItem.getText() + " is selected";
+		}
+	}
+
+	private static final class EditorActivationCondition implements WaitCondition {
+
+		private final Editor targetEditor;
+
+		public EditorActivationCondition(final Editor targetEditor) {
+			this.targetEditor = targetEditor;
+		}
+
+		@Override
+		public boolean test() {
+			return targetEditor.isActive();
+		}
+
+		@Override
+		public String description() {
+			return targetEditor.getTitle() + " is active";
+		}
+	}
 
 	private static final String SYNCED_IMAGE = "synced.gif";
 	private static final String LINK_WITH_EDITOR = "Link with Editor";
@@ -72,18 +185,14 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 		private void closeAllEditors() {
 			// close all editors
-			try {
-				WorkbenchHandler.getInstance().closeAllEditors();
-			} catch (WorkbenchPartNotFound e) {
-				// ignore if it fails here, it just means there's no editor open
-			}
-
+			WorkbenchHandler.getInstance().closeAllEditors();
 		}
+
 		private void toogleLinkWithEditor(final FrameworkMethod method) {
 			final LinkWithEditor linkWithEditor = method.getAnnotation(LinkWithEditor.class);
 			final JUnitView junitView = new JUnitView();
 			open(junitView);
-			ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+			DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 			assertNotNull(viewToolItem);
 			// enable/disable as requested
 			if (linkWithEditor == null || linkWithEditor.enabled()) {
@@ -112,16 +221,15 @@ public class JUnitLinkWithEditorRedDeerTest {
 		}
 	};
 
-
 	private void runAllTests() {
 		// run the JUnit tests on the project
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		assertTrue(projectExplorer.containsProject(TEST_PROJECT));
 		projectExplorer.getProject(TEST_PROJECT).select();
 		new ContextMenu("Run As", "4 JUnit Test").select();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		new WaitUntil(new JobIsDoneCondition(), TimePeriod.LONG);
 		// make sure the view gets updated once the job finished
-		sleep(TimePeriod.SHORT);
+		// sleep(TimePeriod.SHORT);
 		assertEquals(new JUnitView().getNumberOfFailures(), 4);
 		assertEquals(new JUnitView().getNumberOfErrors(), 0);
 	}
@@ -133,9 +241,9 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(projectExplorer.containsProject(TEST_PROJECT));
 		projectExplorer.getProject(TEST_PROJECT).getProjectItem("JUnit-LWE-lib.jar").open();
 		new ContextMenu("Run As", "4 JUnit Test").select();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		new WaitUntil(new JobIsDoneCondition(), TimePeriod.LONG);
 		// make sure the view gets updated once the job finished
-		sleep(TimePeriod.SHORT);
+		// sleep(TimePeriod.SHORT);
 		assertEquals(new JUnitView().getNumberOfFailures(), 2);
 		assertEquals(new JUnitView().getNumberOfErrors(), 0);
 	}
@@ -149,9 +257,9 @@ public class JUnitLinkWithEditorRedDeerTest {
 		testSuiteItem.select();
 		final ContextMenu runAsJunitTestContextMenu = new ContextMenu("Run As", "2 JUnit Test");
 		runAsJunitTestContextMenu.select();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		new WaitUntil(new JobIsDoneCondition(), TimePeriod.LONG);
 		// make sure the view gets updated once the job finished
-		sleep(TimePeriod.SHORT);
+		// sleep(TimePeriod.SHORT);
 		assertEquals(new JUnitView().getNumberOfFailures(), 2);
 		assertEquals(new JUnitView().getNumberOfErrors(), 0);
 	}
@@ -163,17 +271,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	 *         starts with the given {@code text}
 	 */
 	private TreeItem getTreeItem(final String... elements) {
-		final DefaultTree defaultTree = new DefaultTree();
-		defaultTree.setFocus();
-		for (TreeItem treeItem : defaultTree.getItems()) {
-			if (treeItem.getText().startsWith(elements[0])) {
-				if (elements.length == 1) {
-					return treeItem;
-				}
-				return getTreeItem(treeItem, Arrays.copyOfRange(elements, 1, elements.length));
-			}
-		}
-		return null;
+		return TreeViewerHandler.getInstance().getTreeItem(new DefaultTree(), elements);
 	}
 
 	/**
@@ -197,7 +295,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	private Image getImage(final Item item) {
 		final LinkedBlockingQueue<Image> queue = new LinkedBlockingQueue<Image>(1);
-		org.jboss.reddeer.swt.util.Display.asyncExec(new Runnable() {
+		org.jboss.reddeer.core.util.Display.asyncExec(new Runnable() {
 			@Override
 			public void run() {
 				queue.add(item.getImage());
@@ -213,43 +311,49 @@ public class JUnitLinkWithEditorRedDeerTest {
 
 	private void open(final AbstractView view) {
 		view.open();
-		sleep(TimePeriod.SHORT);
+		// sleep(TimePeriod.SHORT);
 	}
 
-	private void open(final ProjectItem item) {
-		item.open();
-		sleep(TimePeriod.SHORT);
+	private void open(final ProjectItem projectItem) {
+		projectItem.open();
+		// new WaitUntil(new ProjectItemOpenCondition(projectItem),
+		// TimePeriod.NORMAL);
 	}
 
 	private void select(final TreeItem treeItem) {
 		treeItem.select();
-		// sleep(TimePeriod.SHORT);
+		new WaitUntil(new TreeItemSelectionCondition(treeItem), TimePeriod.NORMAL);
+	}
+
+	private void select(final ProjectItem projectItem) {
+		projectItem.select();
+		new WaitUntil(new ProjectItemSelectionCondition(projectItem), TimePeriod.NORMAL);
 	}
 
 	private void selectText(final TextEditor editor, final String text) {
 		editor.selectText(text);
-		sleep(TimePeriod.SHORT);
+		new WaitUntil(new PostSelectionCondition(TimePeriod.SHORT));
 	}
 
 	private void selectLine(final TextEditor editor, final int line) {
 		editor.selectLine(line);
-		sleep(TimePeriod.SHORT);
+		new WaitUntil(new PostSelectionCondition(TimePeriod.SHORT));
 	}
 
 	private void activate(final AbstractView view) {
 		view.activate();
-		sleep(TimePeriod.SHORT);
+		new WaitUntil(new ViewActivationCondition(view), TimePeriod.NORMAL);
 	}
 
 	private void activate(final TextEditor editor) {
 		editor.activate();
-		sleep(TimePeriod.SHORT);
+		new WaitUntil(new EditorActivationCondition(editor), TimePeriod.NORMAL);
 	}
 
 	private void doubleClick(final TreeItem item) {
 		item.doubleClick();
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
-		sleep(TimePeriod.SHORT);
+		new WaitUntil(new JobIsDoneCondition(), TimePeriod.LONG);
+		// sleep(TimePeriod.SHORT);
 	}
 
 	private Matcher<Image> matches(final String iconName) {
@@ -259,7 +363,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 			public boolean matches(Object item) {
 				final Image image = (Image) item;
 				final LinkedBlockingQueue<ImageData> queue = new LinkedBlockingQueue<ImageData>(1);
-				org.jboss.reddeer.swt.util.Display.syncExec(new Runnable() {
+				org.jboss.reddeer.core.util.Display.syncExec(new Runnable() {
 					@Override
 					public void run() {
 						final IPath path = JavaPluginImages.ICONS_PATH.append("elcl16").append(iconName);
@@ -292,7 +396,8 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@RunJUnitTests(type = TestType.ALL)
 	public void shouldOpenEditorWhenDoubleClickOnTestElementInJUnitViewWithLinkEnabled() {
 		// given
-		open(new JUnitView());
+		final JUnitView junitView = new JUnitView();
+		open(junitView);
 		final TreeItem selectedTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
 		// when
 		doubleClick(selectedTestElement);
@@ -382,7 +487,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
+		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		assertTrue(expectedTestSelection.isSelected());
 	}
 
@@ -407,6 +512,48 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@Test
 	@LinkWithEditor(enabled = true)
 	@RunJUnitTests(type = TestType.ALL)
+	public void shouldSelectElementInJUnitViewWhenSelectingAnotherElementInProjectExplorerWithLinkEnabled() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		// when selecting another element in the project explorer view
+		final ProjectExplorer projectExplorer = new ProjectExplorer();
+		open(projectExplorer);
+		final ProjectItem testSetStr1Item = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
+				"TP1.java", "TP1", "testSetStr1()");
+		select(testSetStr1Item);
+		// then the JUnit view selection should have changed
+		activate(junitView);
+		assertFalse(initialTestElement.isSelected());
+		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.TP1", "testSetStr1");
+		assertTrue(expectedTestSelection.isSelected());
+	}
+
+	@Test
+	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
+	public void shouldNotSelectElementInJUnitViewWhenSelectingAnotherElementInProjectExplorerWithLinkDisabled() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		// when selecting another element in the project explorer view
+		final ProjectExplorer projectExplorer = new ProjectExplorer();
+		open(projectExplorer);
+		final ProjectItem testSetStr1Item = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
+				"TP1.java", "TP1", "testSetStr1()");
+		select(testSetStr1Item);
+		// then the JUnit view selection should NOT have changed
+		activate(junitView);
+		assertTrue(initialTestElement.isSelected());
+	}
+
+	@Test
+	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
 	public void shouldSelectTestElementInJUnitViewWhenSelectingAnotherMethodNameInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
@@ -420,7 +567,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedTestElementItem = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
+		final TreeItem expectedTestElementItem = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		assertTrue(expectedTestElementItem.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
@@ -436,14 +583,17 @@ public class JUnitLinkWithEditorRedDeerTest {
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		select(initialTestElement);
 		doubleClick(initialTestElement);
+		assertTrue(initialTestElement.isSelected());
 		// when selecting another method name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
 		selectText(editor, "testSetStr1");
 		// then the JUnit view selection should not have changed
 		activate(junitView);
-		assertTrue(initialTestElement.isSelected());
+		final TreeItem expectedTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		assertTrue(expectedTestElement.isSelected());
 		// but the outline view, yes
 		open(new OutlineView());
 		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
@@ -462,11 +612,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// when selecting a line in another method in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		selectLine(editor, 17);
+		selectLine(editor, 20);
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
+		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		assertTrue(expectedTestSelection.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
@@ -511,9 +661,9 @@ public class JUnitLinkWithEditorRedDeerTest {
 		selectLine(editor, 6);
 		// then the JUnit view selection should have changed
 		activate(junitView);
-		new WaitWhile(new JobIsRunning(), TimePeriod.LONG);
+		new WaitUntil(new JobIsDoneCondition(), TimePeriod.LONG);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1");
+		final TreeItem expectedSelection = getTreeItem("junit.lwe.TP1");
 		assertTrue(expectedSelection.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
@@ -546,7 +696,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@Test
 	@LinkWithEditor(enabled = true)
 	@RunJUnitTests(type = TestType.ALL)
-	public void shouldSelectTypeElementInJUnitViewWhenSelectingAnImportStatementInEditorWithLinkEnabled() {
+	public void shouldNotSelectTypeElementInJUnitViewWhenSelectingAnImportStatementInEditorWithLinkEnabled() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
@@ -555,15 +705,14 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// when selecting a line in the import statements in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
-		selectLine(editor, 2);
+		selectLine(editor, 3);
 		// then the JUnit view selection should not have changed
 		activate(junitView);
-		assertFalse(initialTestElement.isSelected());
-		assertTrue(getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1").isSelected());
-		// and in the outline view has the same selection
+		assertTrue(initialTestElement.isSelected());
+		// and in the outline view has the no selection
 		open(new OutlineView());
 		final TreeItem expectedOutlineSelection = getTreeItem("TP1");
-		assertTrue(expectedOutlineSelection.isSelected());
+		assertFalse(expectedOutlineSelection.isSelected());
 	}
 
 	@Test
@@ -639,7 +788,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// focus is on the assertion failure in this case
 		assertThat(secondEditor.getSelectedText(), containsString("assertEquals(a.getStr(), \"get\");"));
 		// when selecting back the first element in the JUnit view
-		sleep(TimePeriod.SHORT);
+		// sleep(TimePeriod.SHORT);
 		activate(junitView);
 		final TreeItem thirdTestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
 		select(thirdTestElement);
@@ -657,7 +806,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// then
 		assertTrue(viewToolItem.isEnabled());
 		assertTrue(viewToolItem.isSelected());
@@ -671,7 +820,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// then
 		assertTrue(viewToolItem.isEnabled());
 		assertFalse(viewToolItem.isSelected());
@@ -685,7 +834,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		open(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
 		doubleClick(initialTestElement);
 		final TextEditor testEditor = new TextEditor();
@@ -712,7 +861,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// then the JUnit view selection should have changed
 		activate(junitView);
 		assertFalse(initialTestElement.isSelected());
-		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testSetStr1");
+		final TreeItem expectedTestSelection = getTreeItem("junit.lwe.TP1", "testSetStr1");
 		assertTrue(expectedTestSelection.isSelected());
 	}
 
@@ -722,7 +871,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldShowBrokenSyncWhenTestEndsAndOtherTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -742,7 +891,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestEndsAndOtherTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -762,7 +911,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestEndsAndFirstFailingTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -782,7 +931,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestEndsAndFirstFailingTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -802,7 +951,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldShowBrokenSyncWhenTestEndsAndNonTestClassOpenedInEditorWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -822,7 +971,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestEndsAndTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -842,7 +991,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestEndsAndNonTestClassOpenedInEditorWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -863,7 +1012,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldShowBrokenSyncWhenOtherEditorActiveThenSyncAgainWhenTestEditorOpensWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -877,7 +1026,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNC_BROKEN_IMAGE));
 		// then, given TP1.java opened from Project Explorer
 		final ProjectItem testClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
-				"TP1.java");
+				"TP1.java", "TP1");
 		// when opening the Editor for this test class
 		open(testClassItem);
 		// then the LWE button should be in 'sync' state
@@ -892,11 +1041,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem testClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
-				"TP1.java");
+				"TP1.java", "TP1");
 		open(testClassItem);
 		// then the LWE button should be 'in sync' state
 		assertTrue(viewToolItem.isEnabled());
@@ -910,7 +1059,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	public void shouldNotShowBrokenSyncWhenTestClassEditorOpenedWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
 		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem testClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -927,14 +1076,16 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@RunJUnitTests(type = TestType.ALL)
 	public void shouldShowBrokenSyncWhenNonTestClassEditorOpenedWithLinkEnabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
-		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final JUnitView junitView = new JUnitView();
+		open(junitView);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
 				"A.java");
 		open(aClassItem);
-		// then the LWE button should be 'in sync' state
+		// then the LWE button should be in 'broken sync' state
+		activate(junitView);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		assertTrue(viewToolItem.isEnabled());
 		assertTrue(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNC_BROKEN_IMAGE));
@@ -945,14 +1096,16 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@RunJUnitTests(type = TestType.ALL)
 	public void shouldNotShowBrokenSyncWhenNonTestClassEditorOpenedWithLinkDisabled() {
 		// given JUnit view exists and A.java opened from Project Explorer
-		activate(new JUnitView());
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
 				"A.java");
 		open(aClassItem);
 		// then the LWE button should be 'in sync' state
+		activate(junitView);
 		assertTrue(viewToolItem.isEnabled());
 		assertFalse(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
@@ -965,11 +1118,11 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given JUnit view exists and A.java opened from Project Explorer
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
-				"TP1.java");
+				"TP1.java", "TP1");
 		open(aClassItem);
 		activate(junitView);
 		activate(projectExplorer);
@@ -988,7 +1141,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given JUnit view exists and A.java opened from Project Explorer
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
 		final ProjectItem aClassItem = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
@@ -1011,7 +1164,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1031,7 +1184,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1051,7 +1204,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1076,7 +1229,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1101,7 +1254,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1109,6 +1262,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 				"junit.lwe.submodule", "TP3.class");
 		open(testClassItem);
 		// then the LWE button should be 'in sync' state
+		activate(junitView);
 		assertTrue(viewToolItem.isEnabled());
 		assertTrue(viewToolItem.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
@@ -1121,7 +1275,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1141,7 +1295,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1166,7 +1320,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when
 		final ProjectExplorer projectExplorer = new ProjectExplorer();
 		activate(projectExplorer);
@@ -1194,7 +1348,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testGetStr1");
 		doubleClick(initialTestElement);
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when selecting another class name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
@@ -1218,7 +1372,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		final TreeItem initialTestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testGetStr1");
 		doubleClick(initialTestElement);
 		activate(junitView);
-		final ViewToolItem viewToolItem = new ViewToolItem(LINK_WITH_EDITOR);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
 		// when selecting another class name in the editor
 		final TextEditor editor = new TextEditor();
 		activate(editor);
@@ -1230,6 +1384,90 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertFalse(viewToolItem.isSelected());
 		assertFalse(testElement.isSelected());
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
+	}
+
+	@Test
+	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
+	public void shouldNotMoveCaretWhenSelectingClassFieldWithLinkTrue() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		// when selecting a line in the import statements in the editor
+		final TextEditor editor = new TextEditor();
+		activate(editor);
+		selectText(editor, "String s;");
+		// then the caret should not have moved in the editor
+		assertEquals(editor.getSelectedText(), "String s;");
+		// then the JUnit view selection should not have changed
+		activate(junitView);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNC_BROKEN_IMAGE));
+		final TreeItem tp1TestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		assertTrue(tp1TestElement.isSelected());
+	}
+
+	@Test
+	@LinkWithEditor(enabled = false)
+	@RunJUnitTests(type = TestType.ALL)
+	public void shouldNotMoveCaretWhenSelectingClassFieldWithLinkFalse() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		// when selecting a line in the import statements in the editor
+		final TextEditor editor = new TextEditor();
+		activate(editor);
+		selectText(editor, "String s;");
+		// then the caret should not have moved in the editor
+		assertEquals(editor.getSelectedText(), "String s;");
+		// then the JUnit view selection should not have changed
+		activate(junitView);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
+		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
+		final TreeItem tp1TestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		assertTrue(tp1TestElement.isSelected());
+	}
+
+	@Test
+	@LinkWithEditor(enabled = true)
+	@RunJUnitTests(type = TestType.ALL)
+	public void shouldSelectTestElementInJUnitWhenSelectingAnotherTypeInPackageExplorerWithLinkTrue() {
+		// given
+		final JUnitView junitView = new JUnitView();
+		activate(junitView);
+		open(junitView);
+		final TreeItem initialTestElement = getTreeItem("junit.lwe.TP1", "testGetStr1");
+		doubleClick(initialTestElement);
+		// now, open TP2 from Project Explorer
+		final ProjectExplorer projectExplorer = new ProjectExplorer();
+		activate(projectExplorer);
+		final DefaultToolItem viewToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
+		if (!viewToolItem.isSelected()) {
+			viewToolItem.click();
+		}
+		final ProjectItem tp2Item = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
+				"TP2.java", "TP2");
+		open(tp2Item);
+		// check that selection changed in JUnit view
+		activate(junitView);
+		final TreeItem tp2TestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP2");
+		assertTrue(tp2TestElement.isSelected());
+		// now select TP1 again from Project Explorer
+		final ProjectItem tp1Item = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
+				"TP1.java");
+		select(tp1Item);
+		// check that selection changed in JUnit view
+		activate(junitView);
+		final TreeItem tp1TestElement = getTreeItem("junit.lwe.AllTests", "junit.lwe.TP1", "testGetStr1");
+		assertTrue(tp1TestElement.isSelected());
+		final DefaultToolItem junitToolItem = new DefaultToolItem(LINK_WITH_EDITOR);
+		assertThat(getImage(junitToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 	}
 
 }

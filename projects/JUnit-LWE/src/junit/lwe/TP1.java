@@ -5,6 +5,9 @@ import junit.framework.TestCase;
 import org.junit.Test;
 
 public class TP1 extends TestCase {
+	
+	String s;
+	
 	@Test
 	public void testGetStr1() {
 		A a= new A();
