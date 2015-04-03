@@ -318,6 +318,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		projectItem.open();
 		// new WaitUntil(new ProjectItemOpenCondition(projectItem),
 		// TimePeriod.NORMAL);
+		new WaitUntil(new PostSelectionCondition(TimePeriod.SHORT));
 	}
 
 	private void select(final TreeItem treeItem) {
@@ -443,7 +444,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertEquals("testSetStr1", defaultEditor.getSelectedText());
 		// and in the outline view as well
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -467,7 +468,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertEquals("testGetStr1", defaultEditor.getSelectedText());
 		// and nor in the outline view
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testGetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testGetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -482,7 +483,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		doubleClick(initialTestElement);
 		// when selecting another element in the outline view
 		open(new OutlineView());
-		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
+		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1()");
 		select(firstOutlineElement);
 		// then the JUnit view selection should have changed
 		activate(junitView);
@@ -502,7 +503,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		doubleClick(initialTestElement);
 		// when selecting another element in the outline view
 		open(new OutlineView());
-		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
+		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1()");
 		select(firstOutlineElement);
 		// then the JUnit view selection should have changed
 		activate(junitView);
@@ -571,7 +572,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(expectedTestElementItem.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -596,7 +597,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(expectedTestElement.isSelected());
 		// but the outline view, yes
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -620,7 +621,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(expectedTestSelection.isSelected());
 		// and in the outline view as well
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -642,7 +643,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(initialTestElement.isSelected());
 		// but the outline view, yes
 		open(new OutlineView());
-		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1");
+		final TreeItem expectedOutlineSelection = getTreeItem("TP1", "testSetStr1()");
 		assertTrue(expectedOutlineSelection.isSelected());
 	}
 
@@ -856,7 +857,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertThat(getImage(viewToolItem.getSWTWidget()), matches(SYNCED_IMAGE));
 		// when select a method in the outline view
 		open(new OutlineView());
-		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1");
+		final TreeItem firstOutlineElement = getTreeItem("TP1", "testSetStr1()");
 		select(firstOutlineElement);
 		// then the JUnit view selection should have changed
 		activate(junitView);
@@ -1213,7 +1214,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		open(testClassItem);
 		final OutlineView outlineView = new OutlineView();
 		open(outlineView);
-		final TreeItem firstOutlineElement = getTreeItem("TP3", "testSetStr3");
+		final TreeItem firstOutlineElement = getTreeItem("TP3", "testSetStr3()");
 		select(firstOutlineElement);
 
 		// then the LWE button should be 'in sync' state
@@ -1238,7 +1239,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		open(testClassItem);
 		final OutlineView outlineView = new OutlineView();
 		open(outlineView);
-		final TreeItem firstOutlineElement = getTreeItem("TP3", "testSetStr3");
+		final TreeItem firstOutlineElement = getTreeItem("TP3", "testSetStr3()");
 		select(firstOutlineElement);
 
 		// then the LWE button should be 'in sync' state
@@ -1437,7 +1438,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 	@Test
 	@LinkWithEditor(enabled = true)
 	@RunJUnitTests(type = TestType.ALL)
-	public void shouldSelectTestElementInJUnitWhenSelectingAnotherTypeInPackageExplorerWithLinkTrue() {
+	public void shouldSelectTestElementInJUnitWhenSelectingAnotherTypeInProjectExplorerWithLinkTrue() {
 		// given
 		final JUnitView junitView = new JUnitView();
 		activate(junitView);
@@ -1460,7 +1461,7 @@ public class JUnitLinkWithEditorRedDeerTest {
 		assertTrue(tp2TestElement.isSelected());
 		// now select TP1 again from Project Explorer
 		final ProjectItem tp1Item = projectExplorer.getProject(TEST_PROJECT).getProjectItem("src", "junit.lwe",
-				"TP1.java");
+				"TP1.java", "testGetStr1()");
 		select(tp1Item);
 		// check that selection changed in JUnit view
 		activate(junitView);
